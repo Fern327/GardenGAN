@@ -9,8 +9,6 @@ public class position : MonoBehaviour
     {
         obj = GameObject.Find("water").transform;
         obj.localPosition = new Vector3(0, -0.2f, 0);
-        obj = GameObject.Find("garden").transform;
-        obj.localPosition = new Vector3(0, 0, 0);
         obj = GameObject.Find("foundation").transform;
         obj.localPosition = new Vector3(0, 0, 0);
         obj = GameObject.Find("corridors").transform;
