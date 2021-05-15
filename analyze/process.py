@@ -6,10 +6,12 @@ import os
 from numpy.core import numeric
 
 from scipy.spatial import distance as dist
-import visualization
-import config
-import util
-import calculation
+from analyze import visualization
+from analyze import config
+# import config
+# import visualization
+# from analyze import util
+# from analyze import calculation
 
 
 # hsv = cv2.cvtColor(src, cv2.COLOR_BGR2HSV)
@@ -28,15 +30,16 @@ import calculation
 
 
 # 通过轮廓图统计各要素数量或面积,coutarea=True则是算各要素面积比例
-def total(dir, only_p, coutarea):
+def total(dir, only_p, coutarea, if256):
     con_path = dir+'arcs.png'
     p_path = dir+'plan.png'
-    s = ['water', 'mountain', 'corridor', 'inter', 'main', 'landscape', 'other']
-    ele_num = {'water': 0, 'mountain': 0, 'corridor': 0,
+    s = ['water', 'mountain', 'corridor', 'second',
+         'inter', 'main', 'landscape', 'other']
+    ele_num = {'water': 0, 'mountain': 0, 'corridor': 0, 'second': -1,
                'inter': 0, 'main': 0, 'landscape': 0, 'other': 0}  # 主厅
     ele_num_sum = []
     if coutarea:
-        site = calculation.count_site(p_path, dir, only_p)
+        site = count_site(p_path, dir, only_p, if256)
 
     con = cv2.imread(con_path)
     gray = cv2.cvtColor(con, cv2.COLOR_BGR2GRAY)
@@ -49,14 +52,18 @@ def total(dir, only_p, coutarea):
     '''
     for cont in contours[1:]:
         area = cv2.contourArea(cont, False)  # 计算轮廓面积
+        minarea = 10 if if256 else 40
+        if area < minarea:
+            continue
         M = cv2.moments(cont)  # 计算第一条轮廓的各阶矩,字典形式
+
         center_x = int(M['m10']/M['m00'])
         center_y = int(M['m01']/M['m00'])
         b = p[center_y, center_x, 0]  # opencv颜色顺序是BGR
         g = p[center_y, center_x, 1]
         r = p[center_y, center_x, 2]
         rgb = (r, g, b)
-        for arc in s[4:]:
+        for arc in s[5:]:
             if define_ele(arc, rgb, only_p):
                 ele_num[arc] += area if coutarea else 1
                 break
@@ -64,7 +71,7 @@ def total(dir, only_p, coutarea):
     '''
     计算其他要素数量
     '''
-    for x in s[:4]:
+    for x in s[:5]:
         con = cv2.imread(dir+x+'.png')
         gray = cv2.cvtColor(con, cv2.COLOR_BGR2GRAY)
         _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
@@ -104,7 +111,7 @@ def min_box(cont):
 
 
 # 通过像素识别元素
-def define_ele(str, rgb, only_p=True):
+def define_ele(str, rgb, only_p=False):
     r = rgb[0]
     g = rgb[1]
     b = rgb[2]
@@ -127,9 +134,11 @@ def define_ele(str, rgb, only_p=True):
         elif str == 'site' and not((r > 200 and g > 200 and b > 200) or (r < 20 and g > 240 and b > 240)):
             f = True
     else:
-        if str == 'water' and r > 200 and g > 200:
+        if str == 'water' and r > 200 and g > 200 and b < 50:
             f = True
         elif str == 'corridor' and r > 200 and g < 80:
+            f = True
+        elif str == 'second' and r > 200 and g > 80 and g < 200:
             f = True
         elif str == 'mountain' and r < 80 and g < 80:
             f = True
@@ -141,7 +150,11 @@ def define_ele(str, rgb, only_p=True):
             f = True
         elif str == 'other' and r > 90 and r < 190 and g > 90 and g < 190:
             f = True
-        elif str == 'site' and not (r > 200 and g > 200):
+        elif str == 'site' and not (r > 200 and g > 200 and b > 200):
+            f = True
+        elif str == 'dot' and g > 60 and g < 150:
+            f = True
+        elif str == 'group' and r < 110:
             f = True
     return f
 
@@ -183,7 +196,7 @@ def copy_moutain(h_path, img_path, p_path, only_p):
 
 
 # 通过p_path绘制出不同要素的轮廓图
-def find_cont(path, ele, dir, only_p):
+def find_cont(path, ele, dir, only_p, if256=False):
     for n, s in enumerate(ele):
         img = Image.open(path)
         w, h = img.size
@@ -211,17 +224,18 @@ def find_cont(path, ele, dir, only_p):
             binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         for cont in contours[1:]:
             area = cv2.contourArea(cont, False)  # 计算轮廓面积
-            if area < 100:
+            minarea = 25 if if256 else 100
+            if area < minarea:
                 cv2.fillPoly(con, [cont], (255, 255, 255))   # 填充轮廓
                 continue
         cv2.imwrite(cont_path, con)
 
 
 # 算出场地面积
-def count_site(path, dir, only_p):
+def count_site(path, dir, only_p, if256=False):
+    if not(os.path.exists(dir+'site.png')):
+        find_cont(path, ['site'], dir, only_p, if256)
     con = cv2.imread(dir+'site.png')
-    if not(os.path.exists(con)):
-        find_cont(path, ['site'], dir, only_p)
     water = cv2.imread(dir+'water.png')
     area = 0
     gray = cv2.cvtColor(con, cv2.COLOR_BGR2GRAY)
@@ -229,27 +243,27 @@ def count_site(path, dir, only_p):
     contours, _ = cv2.findContours(
         binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-    for cont in contours[1:]:
-        area += cv2.contourArea(cont, False)  # 计算除水外的轮廓面积
+    # for cont in contours[1:]:
+    area = cv2.contourArea(contours[1], False)  # 计算除水外的轮廓面积
 
-    gray = cv2.cvtColor(water, cv2.COLOR_BGR2GRAY)
-    _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(
-        binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    # gray = cv2.cvtColor(water, cv2.COLOR_BGR2GRAY)
+    # _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+    # contours, _ = cv2.findContours(
+    #     binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-    for cont in contours[1:]:
-        area += cv2.contourArea(cont, False)  # 计算水的轮廓面积
+    # for cont in contours[1:]:
+    #     area += cv2.contourArea(cont, False)  # 计算水的轮廓面积
 
     return area
 
 
 # 处理图片，gh=true则生成一张导入gh显示高程的图
-def process(dir, gh, only_p=True):
-    img_path = dir+'fake_B.png'
+def process(dir, name='', gh=True, only_p=True):
+    img_path = dir+'fake_B.png' if name == '' else dir+name
     con_path = dir+'arcs.png'
     p_path = dir+'plan.png'
     h_path = dir+'height.png'
-    gh_path = dir+'gh.png'
+    # gh_path = dir+'gh.png'
 
     '''
     如果两张图就裁图
@@ -309,10 +323,8 @@ def process(dir, gh, only_p=True):
         # 如果有灰度图，就同时也填充到灰度图上
         if gh:
             b = 0
-            cnt = 0
             for i in range(0, 3):
                 for j in range(0, 3):
-                    cnt += 1
                     r = h[center_y+i-1, center_x+j-1, 0]
                     b += r
             b = b//9
@@ -322,50 +334,20 @@ def process(dir, gh, only_p=True):
 
     cv2.imwrite(con_path, con)
     cv2.imwrite(p_path, p)
-    if gh:
-        cv2.imwrite(h_path, h)
 
     '''
     如果是有高度的模型，gh=True，生成导入gh的图片
     修改草地和水的高度，复制山石部分
     '''
     if gh:
-        p = Image.open(p_path)
-        h = Image.open(h_path)
-        p_map = p.load()
-        h_map = h.load()
-        h_map_n = h.load()
-        w, hei = p.size
-        for x in range(w):
-            for y in range(hei):
-                rgb_p = p_map[x, y]
-                r_p = rgb_p[0]
-                b_p = rgb_p[2]
-                rgb_b = h_map[x, y]
-                r = rgb_b[0]
-                g = rgb_b[1]
-                b = rgb_b[2]
-                if define_ele('mountain', rgb_p, only_p):
-                    pass
-                else:
-                    if r < 15 and g < 15 and b < 15:
-                        h_map_n[x, y] = (10, 10, 10)
-                    # 山石
-                    elif r >= 150 and g >= 150 and b >= 150 and ((r_p < 175 and b_p > 175) or (r_p > 150 and b_p > 190)):
-                        h_map_n[x, y] = (0, 0, 0)
-                    else:
-                        h_map_n[x, y] = h_map[x, y]
-        h.save(gh_path)
-        blur(gh_path)
-
-        # 复制山体像素
-        copy_moutain(gh_path, img_path, p_path, only_p)
+        cv2.imwrite(h_path, h)
+        copy_moutain(h_path, img_path, p_path, only_p)
+    else:
+        copy_moutain(p_path, img_path, p_path, only_p)
 
     '''
     如果是b表示高度的则复制山体到plan上
     '''
-    if not only_p:
-        copy_moutain(p_path, img_path, p_path, only_p)
 
 
 # 计算要素完整数和平均数,ifarg表示是否算平均数，arg是平均的底数
@@ -387,43 +369,53 @@ def caculate(elements, ifarg, arg=1):
 
 # 删除生成的轮廓文件等
 def remove(dir, i):
-    file = ['contour.png', 'arcs.png', 'plan.png', 'height.png',
-            'gh.png', 'corridor.png', 'inter.png', 'mountain.png', 'water.png', 'site.png', 'mainwatermountain.png', 'top_mountainmainwater.png', 'test.png']
+    file = ['contour.png', 'arcs.png', 'plan.png', 'height.png', 'watermaintop_mountain.png',
+            'gh.png', 'corridor.png', 'inter.png', 'mountain.png', 'water.png', 'site.png', 'mainwatermountain.png', 'landscape_boundmaintop_mountain.png', 'test.png']
     for f in file:
         if os.path.exists(dir+f):
             os.remove(dir+f)
 
 
 if __name__ == "__main__":
-    ele_num_sums = []
-    area_sums = []
-    angles = []
-    distances = []
-    for x in config.model_names:
-        d = './results/'+x+'/test_latest_iter800'
-        area_sum = []
-        ele_num_sum = []
-        angle = []
-        dists = []
-        for i in range(config.test_n*config.test_fre):
-            s = f'_{i//config.test_n}' if i > config.test_n-1 else ''
-            j = i % config.test_n+1
-            dir = d+s+'/images/'+str(j)+'_'
-            print(i, dir+'fake_B.png')
-    # #         '''
-    # #         处理图片
-    # #         '''
-    # #       process(dir, x == 'multi_512' or x ==
-    # #         'multis_512', x != 'plans_512')
-    #         find_cont(dir+'plan.png', ['water', 'mountain',
-    #                                    'inter', 'corridor'], dir, x != 'plans_512')
-    # # '''
-    # # 计算景观格局角度或者主峰正对主厅角度
-    # # '''
+    # path = "./results/compare2/sample/8_plan.png"
+    # dir = "./results/compare2/sample/8_"
+    # find_cont(path, ["arcs"], dir, False)
+
+    # ele_num_sums = []
+    # area_sums = []
+    # angles = []
+    # distances = []
+    # for x in config.model_names:
+    #     d = './results/compare2/unity/'+x+'/test_latest_iter800'
+    #     area_sum = []
+    #     ele_num_sum = []
+    #     angle = []
+    #     dists = []
+    #     for i in range(config.test_n*config.test_fre):
+    #         s = f'_{i//config.test_n}' if i > config.test_n-1 else ''
+    #         j = i % config.test_n+1
+    #         #dir = d+s+'/images/'+str(j)+'_'
+    #         dir = d+s+'/'+str(j)+'_'
+    #         print(i, dir+'fake_B.png')
+    #         area = total(dir, False, coutarea=True, if256=(
+    #             x == "multi_256" or x == "multis_256" or x == "plans_256"))
+    #         area_sum.append(area)
+    #     area_sums.append(area_sum)
+
+    # # #         '''
+    # # #         处理图片
+    # # #         '''
+    #         process(dir, x == 'multi_512' or x ==
+    #                 'multis_512', x != 'plans_512')
+    # find_cont(dir+'plan.png', ['water', 'mountain',
+    #                            'inter', 'corridor', 'second'], dir, False)
+    # # # '''
+    # # # 计算景观格局角度或者主峰正对主厅角度
+    # # # '''
     #         angle_lay = [calculation.angle_ele(
-    #             './results/multis_512/test_latest_iter800_1/images/4_', True, 'water', 'main', 'mountain', True)]
-    #         angle_t = [calculation.angle_ele(
-    #             dir, x != 'plans_512', 'main', 'water', 'top_mountain', True)]
+    #             dir, x != 'plans_512', 'water', 'main', 'mountain', draw=True)]
+    # angle_t = [calculation.angle_ele(
+    #     dir, x != 'plans_512', 'main', 'landscape_bound', 'top_mountain', draw=True)]
     #         angle.append(angle_t)
     #     angles.append(angle)
     # print(angle_lay, angle_t)
@@ -439,7 +431,7 @@ if __name__ == "__main__":
     #         '''
     #         删除轮廓图等
     #         '''
-            # remove(dir, j)
+    # remove(dir, j)
     #         '''
     #         统计图片要素数
     #         '''
@@ -453,19 +445,23 @@ if __name__ == "__main__":
     # '''
     # 读取excel里的数据
     # '''
-    # ele_num_sums = visualization.read_excel('ele_num_sum')#每张图中要素数
-    # area_sums = visualization.read_excel('area_sum')  # 每张图中要素面积占场地比例
-    # angle_mwms = visualization.read_excel('angle_main_water_mountain')  # 每张图中山水主厅格局角度大小
-    # angle_tms = visualization.read_excel('angle_top')  # 每张图中主厅正对主峰角度大小
-    # dis_tl = visualization.read_excel('angle_top_landscape')#每张图中主峰到主景观建筑的距离
-    # dis_tm = visualization.read_excel('angle_top_mountain')#每张图中主峰到山石中心的距离
+    # ele_num_sums = visualization.read_excel('ele_num_sum')  # 每张图中要素数
+    # area_sums = visualization.read_excel('sample_area_sum')  # 每张图中要素面积占场地比例
+    angle_mwms = visualization.read_excel(
+        'angle_main_water_mountain_3')  # 每张图中山水主厅格局角度大小
+    angle_tms = visualization.read_excel('angle_top_3')  # 每张图中主厅正对主峰角度大小
+    # dis_tl = visualization.read_excel(
+    #     'sample_dis_top_landscape')  # 每张图中主峰到主景观建筑的距离
+    # dis_tm = visualization.read_excel(
+    #     'sample_dis_top_mountain')  # 每张图中主峰到山石中心的距离
 
     # '''
     # 计算要素完整度和平均数量
     # '''
 
-    # intergritys= caculate(ele_num_sums, False)
-    # argnums= caculate(ele_num_sums, ifarg=True, arg=config.test_n*test_fre)
+    # intergritys = caculate(ele_num_sums, False)
+    # argnums = caculate(ele_num_sums, ifarg=True,
+    #                    arg=config.test_n*config.test_fre)
     # argareas = caculate(area_sums, ifarg=True,
     #                     arg=config.test_n*config.test_fre)
 
@@ -476,11 +472,11 @@ if __name__ == "__main__":
     # visualization.write_excel(
     #     config.model_names, config.rows_ele, ele_num_sums, 'ele_num_sum')#每张图中要素数
     # visualization.write_excel(
-    #     config.model_names, config.rows_ele, area_sums, 'area_sum')#每张图中要素面积占场地比例
+    #     config.model_names, config.rows_ele, area_sums, 'area_sum')  # 每张图中要素面积占场地比例
     # visualization.write_excel(
-    #     config.model_names, config.rows_angle_top, angles, 'angle_top')#每张图中主厅正对主峰角度大小
+    #     config.model_names, config.rows_angle_top, angles, 'angle_top')  # 每张图中主厅正对主峰角度大小
     # visualization.write_excel(
-    #     config.model_names, config.rows_angle_m_w_m, angles, 'angle_main_water_mountain')#每张图中山水主厅格局角度大小
+    #     config.model_names, config.rows_angle_m_w_m, angles, 'angle_main_water_mountain')  # 每张图中山水主厅格局角度大小
     # visualization.write_excel(
     #     config.model_names, config.rows_dis_tl, distances, 'dis_top_lanscape')#每张图中主峰到主景观建筑的距离
     # visualization.write_excel(
@@ -491,15 +487,18 @@ if __name__ == "__main__":
     # '''
 
     # visualization.Histogram_ele(
-    #     'average_area_scale', config.model_names, config.rows_ele, argareas)
-    # visualization.Histogram_ele('intergrity', config.model_names,config.rows_ele, intergritys)
-    # visualization.Histogram_ele('average_number', config.model_names,config.rows_ele, argnums)
+    #     'average_area_scale', ["samples"], config.rows, argareas)
+    # print(argareas)
+    # visualization.Histogram_ele(
+    #     'intergrity', config.model_names, config.rows, intergritys)
+    # visualization.Histogram_ele(
+    #     'average_number', config.model_names, config.rows, argnums)
 
-    # visualization.Line_ele('angle_main_water_mountain',
-    #                        config.model_names, angle_mwms)
-    # visualization.Line_ele('angle_top',
-    #                        config.model_names, angle_tms)
-    # visualization.Line_ele('dis_top_landscape',
-    #                        config.model_names, dis_tl)
-    # visualization.Line_ele('dis_top_mountain',
-    #                        config.model_names, dis_tm)
+    visualization.Line_ele('angle_main_water_mountain',
+                           ['multi_512', 'multis_512', 'plans_512'], angle_mwms, "angle", 180)
+    visualization.Line_ele('angle_top',
+                           ['multi_512', 'multis_512', 'plans_512'], angle_tms, "angle", 180)
+    # visualization.Line_ele('sample_dis_top_landscape',
+    #                        ["samples"], dis_tl, "distance", 100)
+    # visualization.Line_ele('sample_dis_top_mountain',
+    #                        ["samples"], dis_tm, "distance", 100)

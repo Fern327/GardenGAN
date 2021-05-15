@@ -1,12 +1,39 @@
-from re import X
 from PIL import Image
-import config
-import util
+# from analyze import config
+# import util
 import numpy as np
 import cv2
-import process
+from analyze import process
+# import process
 from scipy.spatial import distance as dist
 import math
+
+# 返回除水和建筑以外不同要素面积
+
+
+def area(dir, ele):
+    path = dir+ele+'.png'
+    img = Image.open(path)
+    img_map = img.load()
+    w, h = img.size
+
+    area = 0
+    for x in range(w):
+        for y in range(h):
+            img_rgb = img_map[x, y]
+            r = img_rgb[0]
+            g = img_rgb[1]
+            b = img_rgb[2]
+            if r != 255 and g != 255 and b != 255:
+                area += 1
+
+    return area
+
+# 返回水和建筑的面积
+
+
+def cvarea(dir, ele, only_p):
+    pass
 
 
 # 返回计算区域中心点横纵坐标
@@ -78,22 +105,17 @@ def center_bound(dir, only_p):
 
     box = process.min_box(boun)
     if dis(box[0][0], box[1][0]) > dis(box[1][0], box[2][0]):
-        cv2.circle(con, ((box[0][0][0]+box[1][0][0])//2, (box[0]
-                   [0][1]+box[1][0][1])//2), 1, (255, 0, 255), -1)  # 绘制出中心点
-        cv2.imwrite(dir+'bound.png', con)
         return ((box[0][0][0]+box[1][0][0])//2, (box[0][0][1]+box[1][0][1])//2)
     else:
-        cv2.circle(con, ((box[1][0][0]+box[2][0][0])//2, (box[1]
-                   [0][1]+box[2][0][1])//2), 1, (255, 0, 255), -1)  # 绘制出中心点
-        cv2.imwrite(dir+'bound.png', con)
         return ((box[1][0][0]+box[2][0][0])//2, (box[1][0][1]+box[2][0][1])//2)
 
 
 # 返回主峰最高点
-def top_mountain(dir, only_p):
+def top_mountain(dir, only_p, ifmulti):
     p_path = dir+'mountain.png'
-    h_path = dir+'gh.png' if only_p else dir+'plan.png'
-    process.blur(p_path, 7)
+    # h_path = dir+'gh.png' if only_p else dir+'plan.png'
+    h_path = dir+'gh.png' if ifmulti else dir+'plan.png'
+    process.blur(p_path, 9)
     p = Image.open(p_path)
     h = Image.open(h_path)
     p_map = p.load()
@@ -139,7 +161,7 @@ def dis(p1, p2):
 
 
 # 计算三要素的视线夹角：1.计算山到水到主厅的夹角——景观格局  2.计算主峰正对大厅的角度，如果为0则主峰正对大厅
-def angle_ele(dir, only_p, center, left, right, draw):
+def angle_ele(dir, only_p, center, left, right, draw, ifmulti=True):
     p = {'center': [0, 0], 'left': [0, 0], 'right': [0, 0]}
     min_90 = False
     for x in [center, left, right]:
@@ -147,9 +169,15 @@ def angle_ele(dir, only_p, center, left, right, draw):
             min_90 = True
             p[x] = center_bound(dir, only_p)
         elif x == 'top_mountain':
-            p[x] = top_mountain(dir, only_p)
+            p[x] = top_mountain(dir, only_p, ifmulti)
         else:
             p[x] = centerpoint(dir, x, only_p)
+
+    # 如果出现要素缺少就直接返回error角度
+    for x in [center, left, right]:
+        if p[x][0] == 0 and p[x][1] == 0:
+            errorangle = 0 if min_90 else 0
+            return errorangle
     if draw:
         con = cv2.imread(dir+'plan.png')
         for r in range(1, 5):

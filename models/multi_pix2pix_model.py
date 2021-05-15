@@ -150,7 +150,7 @@ class MultiPix2PixModel(BaseModel):
         self.loss_D_real_AB = self.criterionGAN(pred_real_AB, True)
         # combine loss and calculate gradients
         self.loss_D_inter = (self.loss_D_fake_Ab +
-                             self.loss_D_fake_aB + self.loss_D_real_AB) * 0.3
+                             self.loss_D_fake_aB + self.loss_D_real_AB+20)*0.5
         self.loss_D_inter.backward()
 
     def backward_G(self):
