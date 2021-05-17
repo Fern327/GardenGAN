@@ -261,8 +261,6 @@ def draw_circle_center(dir, name, input_dir):
                 base_x = (p_0[0]+direction01['x']+p_0[0]+direction03['x'])/2
                 base_y = (p_0[1]+direction01['y']+p_0[1]+direction03['y'])/2
                 canvas = new_dot if i == 0 else new_group
-                color = (255, plant['height'], 255) if i == 0 else (
-                    255, 255, plant['height'])
 
                 for m in range(width_):
                     for n in range(height_):
@@ -279,6 +277,7 @@ def draw_circle_center(dir, name, input_dir):
                             plant = trees_info(
                                 center_x, center_y, True if i == 0 else False, p_map)
                             # 画出冠幅圆圈
+                            color = (255, plant['height'], 255) if i == 0 else (255, 255, plant['height'])
                             cv2.circle(canvas, (center_x, center_y),
                                        plant['radius'], color, -1)
                             # 画出圆心
